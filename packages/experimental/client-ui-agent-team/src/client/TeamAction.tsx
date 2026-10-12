@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   TeamMemberProjection,
+  TeamProjection,
+  TeamTaskId,
   TeamTaskView as TeamTask,
 } from '@deepseek-ai/dsh-experimental-agent-team/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -190,7 +192,69 @@ export function TeamAction({
   })
   const positioned = position !== null
   const leadSessionId = useSession(snapshot => snapshot.subagent?.address.parentSessionId) ?? sessionId
-  const team = useSessions(state => state.projectionsBySession[leadSessionId]?.values.agentTeam)
+  const dshTeam = useSessions(state => state.projectionsBySession[leadSessionId]?.values.agentTeam)
+  const [sgTeam, setSgTeam] = useState<TeamProjection | undefined>(undefined)
+
+  useEffect(() => {
+    if (dshTeam !== undefined) return
+    let active = true
+    const poll = async () => {
+      try {
+        const host = typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : '127.0.0.1'
+        const res = await fetch(`http://${host}:3333/api/state`).catch(() => null)
+        if (res && res.ok && active) {
+          const json = await res.json()
+          if (json && json.mission) {
+            interface RawSgTask {
+              id: string
+              title?: string
+              description?: string
+              status?: string
+              dependencies?: string[]
+              writeScopes?: string[]
+              assignedTo?: string
+            }
+            const rawTasks = (json.tasks || []) as RawSgTask[]
+            const memberNames = new Set<string>(['lead'])
+            for (const t of rawTasks) {
+              if (t.assignedTo) memberNames.add(t.assignedTo)
+            }
+            const members: TeamMemberProjection[] = Array.from(memberNames).map(name => ({
+              id: (name === 'lead' ? sessionId : `${sessionId}#${name}`) as SessionId,
+              name: name === 'lead' ? 'Lead (Coordinator)' : name,
+              role: name === 'lead' ? 'lead' : 'teammate',
+              phase: 'active',
+            }))
+            const tasks: TeamTask[] = rawTasks.map((t: RawSgTask) => ({
+              id: t.id as TeamTaskId,
+              revision: 1,
+              subject: t.title || t.id,
+              description: t.description || t.title || '',
+              status: t.status === 'merged' || t.status === 'green' ? 'completed'
+                : t.status === 'claimed' || t.status === 'red_tested' ? 'in_progress'
+                  : 'pending',
+              blockedBy: (t.dependencies || []) as TeamTaskId[],
+              writeScopes: t.writeScopes || [],
+              ownerName: t.assignedTo || undefined,
+              ready: !t.dependencies || t.dependencies.length === 0,
+              writeScopeWarnings: [],
+            }))
+            setSgTeam({ members, tasks })
+          } else {
+            setSgTeam(undefined)
+          }
+        }
+      } catch {}
+    }
+    poll()
+    const timer = setInterval(poll, 2000)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [dshTeam, sessionId])
+
+  const team = dshTeam ?? sgTeam
   const opening = useSession(snapshot => snapshot.openState === 'loading')
   const listing = useSessions(state => state.phase === 'pending')
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -280,6 +344,9 @@ export function TeamAction({
         onClick={() => {
           cancelHoverChange()
           pinnedRef.current = true
+          try {
+            window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
+          } catch {}
           if (!open) changeOpen(true)
           else panelRef.current?.focus()
         }}
@@ -304,13 +371,71 @@ export function TeamAction({
               <div className={css.error} role="alert"><StateDot state="error" />{error}</div>
             )}
             {team === undefined && (
-              <div className={css.notice} role="status">
-                <StateDot state={opening || listing ? 'ongoing' : 'warning'} />
-                {t(opening || listing ? 'loading' : 'unavailable')}
-              </div>
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--dsw-alias-border-subtle, rgba(128,128,128,0.2))' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8' }}>⚡ Supergraph Team</span>
+                  <a href="http://127.0.0.1:3333" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#38bdf8', textDecoration: 'underline', fontWeight: 500 }}>Live Dashboard ↗</a>
+                </div>
+                <div className={css.notice} role="status">
+                  <StateDot state={opening || listing ? 'ongoing' : 'warning'} />
+                  {t(opening || listing ? 'loading' : 'unavailable')}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1,
+                      padding: '6px 10px',
+                      background: 'var(--dsw-alias-bg-hover, rgba(56, 189, 248, 0.15))',
+                      color: '#38bdf8',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      try {
+                        window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
+                      } catch {}
+                      changeOpen(false)
+                    }}
+                  >
+                    Mở Sidebar Monitor ⇲
+                  </button>
+                </div>
+              </>
             )}
             {team !== undefined && (
               <>
+                {dshTeam === undefined && sgTeam !== undefined && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--dsw-alias-border-subtle, rgba(128,128,128,0.2))' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8' }}>⚡ Supergraph Team</span>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          fontSize: 11,
+                          color: '#38bdf8',
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => {
+                          try {
+                            window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
+                          } catch {}
+                          changeOpen(false)
+                        }}
+                      >
+                        Sidebar ⇲
+                      </button>
+                      <a href="http://127.0.0.1:3333" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#38bdf8', textDecoration: 'underline', fontWeight: 500 }}>Live Dashboard ↗</a>
+                    </div>
+                  </div>
+                )}
                 {team.failure !== undefined && (
                   <div className={css.error} role="alert"><StateDot state="error" />{t('failure', { message: team.failure })}</div>
                 )}
