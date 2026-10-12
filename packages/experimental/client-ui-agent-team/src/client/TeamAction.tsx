@@ -235,9 +235,9 @@ export function TeamAction({
                   : 'pending',
               blockedBy: (t.dependencies || []) as TeamTaskId[],
               writeScopes: t.writeScopes || [],
-              ownerName: t.assignedTo || undefined,
               ready: !t.dependencies || t.dependencies.length === 0,
               writeScopeWarnings: [],
+              ...(t.assignedTo ? { ownerName: t.assignedTo } : {}),
             }))
             setSgTeam({ members, tasks })
           } else {

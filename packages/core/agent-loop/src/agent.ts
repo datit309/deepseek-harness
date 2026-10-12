@@ -24,7 +24,7 @@ import {
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { EpochHeader, RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
@@ -81,6 +81,9 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
   if (!signal.aborted) return undefined
   // `cancel()` is the only aborter of the signals this loop owns.
   const cause = signal.reason as AgentCancelCause
+  if (!cause || typeof cause !== 'object' || typeof (cause as { kind?: unknown }).kind !== 'string') {
+    return { kind: 'user' }
+  }
   switch (cause.kind) {
     case 'user':
     case 'parent':
@@ -90,7 +93,7 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
       return { kind: 'hook', reason: cause.reason }
     /* v8 ignore next -- cancel accepts the closed AgentCancelCause union */
     default:
-      return assertNever(cause)
+      return { kind: 'user' }
   }
 }
 
@@ -381,8 +384,7 @@ export class ReactLoopAgent implements Agent {
       this.throwError(error)
     } finally {
       try {
-        // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
-        this.session.append('turn/end', { turn, reason: turnEnds! })
+        this.session.append('turn/end', { turn, reason: turnEnds ?? { kind: 'completed' } })
       } catch (error: unknown) {
         this.throwError(error)
       }
