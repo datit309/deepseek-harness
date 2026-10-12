@@ -23,6 +23,8 @@ import css from './TeamAction.module.css'
 export interface TeamActionInjected {
   /** Open a roster Session from the current conversation. */
   openTeammate: (sessionId: SessionId, childSessionId: SessionId) => void
+  /** Open the Supergraph Team dashboard in the Right Sidebar (or fallback tab). */
+  openSidebar?: (sessionId: SessionId) => void
 }
 
 /** Durable lifecycle overlaid with the member Session's live turn activity. */
@@ -179,7 +181,7 @@ function TaskCard({ task, t }: { task: TeamTask; t: TranslateNS<typeof NS> }) {
 
 /** Render the Team roster and read-only task board. */
 export function TeamAction({
-  sessionId, useSession, useSessions, useSessionStatus, openTeammate, t,
+  sessionId, useSession, useSessions, useSessionStatus, openTeammate, openSidebar, t,
 }: TeamActionProps) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -395,9 +397,13 @@ export function TeamAction({
                       cursor: 'pointer',
                     }}
                     onClick={() => {
-                      try {
-                        window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
-                      } catch {}
+                      if (openSidebar) {
+                        openSidebar(sessionId)
+                      } else {
+                        try {
+                          window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
+                        } catch {}
+                      }
                       changeOpen(false)
                     }}
                   >
@@ -424,9 +430,13 @@ export function TeamAction({
                           cursor: 'pointer',
                         }}
                         onClick={() => {
-                          try {
-                            window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
-                          } catch {}
+                          if (openSidebar) {
+                            openSidebar(sessionId)
+                          } else {
+                            try {
+                              window.dispatchEvent(new CustomEvent('supergraph:team:open', { detail: { sessionId } }))
+                            } catch {}
+                          }
                           changeOpen(false)
                         }}
                       >

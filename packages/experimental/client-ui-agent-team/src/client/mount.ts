@@ -17,8 +17,22 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Right sidebar navigation face. */
+    sidebarRight?: {
+      openTabIn: (sessionId: SessionId, kind: string, options?: { params?: { url?: string } }) => void
+      openTab: (kind: string, options?: { params?: { url?: string } }) => void
+    }
+  }
+}
+
+interface CustomSessionEvent extends Event {
+  readonly detail?: { readonly sessionId?: SessionId }
+}
+
 /** Required browser services for navigation, slots, and localized copy. */
-export const inject = ['sessions', 'uiWorkspace', 'slots', 'locale']
+export const inject = ['sessions', 'uiWorkspace', 'slots', 'locale', 'sidebarRight']
 
 /**
  * Register the Team locale dictionaries and the conversation-header action.
@@ -48,6 +62,36 @@ export function registerAgentTeamUi(ctx: ClientContext): void {
         mode: 'continuable',
       })
     },
+    openSidebar(sessionId: SessionId): void {
+      const host = typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : '127.0.0.1'
+      const url = `http://${host}:3333/?sessionId=${encodeURIComponent(sessionId)}`
+      const right = ctx.sidebarRight
+      if (right) {
+        try {
+          right.openTabIn(sessionId, 'browser', { params: { url } })
+          return
+        } catch (e) {
+          console.warn('sidebarRight.openTabIn failed, falling back to openTab:', e)
+          try {
+            right.openTab('browser', { params: { url } })
+            return
+          } catch {}
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.open(url, '_blank')
+      }
+    },
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('supergraph:team:open', (e: Event) => {
+      const customEvent = e as CustomSessionEvent
+      const sid = customEvent.detail?.sessionId
+      if (sid && actions.openSidebar) {
+        actions.openSidebar(sid)
+      }
+    })
   }
 
   ctx.slots.inject(
